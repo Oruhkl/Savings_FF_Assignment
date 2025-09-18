@@ -1,66 +1,94 @@
-## Foundry
+## Foundry Security Audit: TimeLockSavings Contract
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+### Overview
+This repository contains a comprehensive security audit of a forked TimeLockSavings smart contract implementation. The audit includes an enhanced test suite specifically designed to identify and demonstrate security vulnerabilities, along with a detailed professional audit report.
 
-Foundry consists of:
+### Audit Scope
+The security assessment covers:
+- Core contract functionality and business logic
+- ERC20 token compatibility and integration
+- Reward calculation mechanisms
+- State management and consistency
+- Event emission and parameter handling
+- Input validation and error handling
 
-- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
-- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
-- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
-- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+### Key Findings Summary
 
-## Documentation
+#### Critical Issues: 0
+#### High Severity Issues: 0
+#### Medium Severity Issues: 3
+- **M-01**: Incorrect Parameter Order in Reward Calculation
+- **M-02**: ERC20 Token Compatibility Issues
+- **M-03**: Unfair Reward Distribution Due to Time-Based Cliffs
 
-https://book.getfoundry.sh/
+#### Low Severity Issues: 4
+- **L-01**: Event Parameter Order Mismatch
+- **L-02**: Incomplete State Cleanup After Withdrawal  
+- **L-03**: Precision Loss in Reward Calculations
+- **L-04**: Missing Constructor Input Validation
 
-## Usage
+### Technical Environment
+- **Framework**: Foundry (Forge)
+- **Solidity Version**: ^0.8.0
+- **Test Coverage**: Comprehensive vulnerability demonstration tests
+- **Audit Methodology**: Manual code review + automated test verification
 
-### Build
-
-```shell
-$ forge build
+### Repository Structure
+```
+├── src/                 # Solidity source contracts
+├── test/               # Enhanced test suite with vulnerability PoCs
+├── audit/              # Detailed audit report and findings
+│   └── report.MD       # Comprehensive security assessment
+├── script/             # Deployment and utility scripts
+└── lib/                # Dependencies 
 ```
 
-### Test
+### Usage Instructions
 
-```shell
-$ forge test
+#### Installation & Setup
+```bash
+forge install
+forge build
 ```
 
-### Format
+#### Running Security Tests
+```bash
+# Run all security tests
+forge test
 
-```shell
-$ forge fmt
+# Generate gas report
+forge test --gas-report
 ```
 
-### Gas Snapshots
+#### Code Quality
+```bash
+# Format code
+forge fmt
 
-```shell
-$ forge snapshot
+# Run linting and static analysis
+forge inspect
 ```
 
-### Anvil
+### Audit Report Access
+The complete security audit report is available in the [`audit/`](audit/report.MD) directory, containing:
+- Detailed vulnerability descriptions
+- Proof-of-Concept test cases
+- Severity assessments
+- Recommended mitigations
+- Code patches for identified issues
 
-```shell
-$ anvil
-```
+### Professional Recommendations
+1. **Immediate Action**: Address all Medium severity issues before production deployment
+2. **Code Review**: Implement all recommended fixes from the audit report
+3. **Testing**: Ensure all security tests pass after implementing fixes
+4. **Monitoring**: Establish ongoing security monitoring and periodic re-audits
 
-### Deploy
+### Disclaimer
+This audit was conducted on a specific fork of the TimeLockSavings contract. It is a time boxed security review and does not guarantee total absence of bugs. The findings and recommendations are specific to this implementation and should not be generalized to other versions without proper assessment.
 
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
+### Contact
+For questions regarding this security audit or to discuss remediation strategies, please refer to the audit report documentation.
 
-### Cast
+---
 
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+**Note**: This repository serves as an educational resource for smart contract security best practices and should not be deployed to production networks without implementing all recommended security fixes.

@@ -48,7 +48,7 @@ contract MockERC20 {
     }
 }
 
-contract TimeLockSavingsTest is Test {
+contract TimeLockSavingsPoc is Test {
     TimeLockSavings public savings;
     MockERC20 public token;
     
@@ -241,6 +241,38 @@ contract TimeLockSavingsTest is Test {
         // This will fail due to missing return value
         vm.expectRevert();
         usdtSavings.deposit(1000);
+    }
+    function test_bug6_UnfairRewardCliffProblem() public {
+        console2.log("=== UNFAIR REWARD CLIFF PROBLEM ===");
+        
+        uint256 depositAmount = 1000 * 10**18; // 1000 tokens
+        uint256 minLock = MIN_LOCK_PERIOD;
+        
+        // Test periods around the bonus threshold
+        uint256 period1 = minLock + 29 days;  // 1 day before bonus
+        uint256 period2 = minLock + 29 days + 23 hours + 59 minutes + 59 seconds; // 1 second before bonus
+        uint256 period3 = minLock + 30 days;  // Exactly at bonus threshold
+        
+        uint256 reward1 = savings.calculateReward(depositAmount, period1);
+        uint256 reward2 = savings.calculateReward(depositAmount, period2);
+        uint256 reward3 = savings.calculateReward(depositAmount, period3);
+        
+        console2.log("89 days reward:", reward1 / 10**18, "tokens");
+        console2.log("89 days 23:59:59 reward:", reward2 / 10**18, "tokens");
+        console2.log("90 days reward:", reward3 / 10**18, "tokens");
+        
+        // Demonstrate the cliff: 1 second makes massive difference
+        console2.log("CLIFF EFFECT: 1 second difference -> Reward jumps from", 
+                    reward2 / 10**18, "to tokens :", 
+                    reward3 / 10**18);
+        
+        assertTrue(reward3 > reward2, "Should get more reward after threshold");
+        assertEq(reward3 - reward2, 10 * 10**18, "Should get exactly 10 token bonus at cliff");
+        
+        // This demonstrates the unfairness: 89 days gets same reward as 60 days!
+        uint256 reward60Days = savings.calculateReward(depositAmount, minLock);
+        assertEq(reward1, reward60Days, "89 days gets same reward as 60 days (UNFAIR!)");
+        assertTrue(reward3 > reward1, "90 days should get more than 89 days");
     }
 
 }

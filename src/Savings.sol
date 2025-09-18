@@ -77,7 +77,7 @@ contract TimeLockSavings {
             emit EarlyWithdrawn(msg.sender, withdrawAmount, penalty, _depositId);
         } else {
             // Normal withdrawal with rewards
-            uint256 reward = calculateReward(timeElapsed, amount);//@audit-issue wrong param
+            uint256 reward = calculateReward(timeElapsed, amount);
             uint256 totalAmount = amount + reward;
 
             userDeposit.withdrawn = true;
@@ -96,7 +96,7 @@ contract TimeLockSavings {
         }
 
         // Base reward for minimum lock period
-        uint256 reward = (_amount * BASE_REWARD_RATE) / BASIS_POINTS; //@follow-up possible precision loss
+        uint256 reward = (_amount * BASE_REWARD_RATE) / BASIS_POINTS;
         
 
         // Additional rewards for extra periods beyond minimum

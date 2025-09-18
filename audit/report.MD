@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This report presents a comprehensive security analysis of the TimeLockSavings contract and its associated test suite. The analysis identified 6 distinct vulnerabilities ranging from **Medium** to **Low** severity. The most critical issues involve incorrect parameter ordering in reward calculations and potential token compatibility problems that could lead to contract failures with certain ERC20 tokens.
+This report presents a comprehensive security analysis of the TimeLockSavings contract and its associated test suite. The analysis identified 7 distinct vulnerabilities ranging from **Medium** to **Low** severity. The most critical issues involve incorrect parameter ordering in reward calculations, potential token compatibility problems that could lead to contract failures with certain ERC20 tokens and unfair reward distribution due to time-based "Cliffs"
 
 ---
 
@@ -163,7 +163,77 @@ contract TimeLockSavings {
 
 ---
 
-### **Finding 3: Event Parameter Order Mismatch**
+### **Finding 3: Unfair Reward Distribution Due to Time-Based "Cliffs"**
+**Severity: MEDIUM**
+
+#### Description
+The reward calculation uses discrete 30-day bonus periods, creating unfair "cliffs" where users receive no additional rewards for locking funds for periods just shy of the next bonus threshold.
+
+#### Root Cause
+```solidity
+// Lines 84-88 in TimeLockSavings.sol
+if (_timeElapsed > MIN_LOCK_PERIOD) {
+    uint256 extraPeriods = (_timeElapsed - MIN_LOCK_PERIOD) / BONUS_PERIOD;
+    uint256 bonusReward = (_amount * BONUS_REWARD_RATE * extraPeriods) / BASIS_POINTS;
+    reward += bonusReward;
+}
+```
+Integer division means any extra time less than a full 30-day period results in zero bonus reward.
+
+#### Impact
+- **Unfair user experience**: Users locking funds for 89 days receive the same reward as those locking for 60 days
+- **Perverse incentives**: Encourages users to time withdrawals exactly at 30-day intervals
+- **Economic inefficiency**: Does not properly reward users for partial locking periods
+
+#### Proof of Concept
+```solidity
+function test_bug6_UnfairRewardCliffProblem() public {
+    console2.log("=== UNFAIR REWARD CLIFF PROBLEM ===");
+    
+    uint256 depositAmount = 1000 * 10**18; // 1000 tokens
+    uint256 minLock = MIN_LOCK_PERIOD;
+    
+    // Test periods around the bonus threshold
+    uint256 period1 = minLock + 29 days;  // 1 day before bonus
+    uint256 period2 = minLock + 29 days + 23 hours + 59 minutes + 59 seconds; // 1 second before bonus
+    uint256 period3 = minLock + 30 days;  // Exactly at bonus threshold
+    
+    uint256 reward1 = savings.calculateReward(depositAmount, period1);
+    uint256 reward2 = savings.calculateReward(depositAmount, period2);
+    uint256 reward3 = savings.calculateReward(depositAmount, period3);
+    
+    console2.log("89 days reward:", reward1 / 10**18, "tokens");
+    console2.log("89 days 23:59:59 reward:", reward2 / 10**18, "tokens");
+    console2.log("90 days reward:", reward3 / 10**18, "tokens");
+    
+    // Demonstrate the cliff: 1 second makes massive difference
+    console2.log("CLIFF EFFECT: 1 second difference -> Reward jumps from", 
+                reward2 / 10**18, "to", 
+                reward3 / 10**18);
+    
+    assertTrue(reward3 > reward2, "Should get more reward after threshold");
+    assertEq(reward3 - reward2, 10 * 10**18, "Should get exactly 10 token bonus at cliff");
+    
+    // This demonstrates the unfairness: 89 days gets same reward as 60 days!
+    uint256 reward60Days = savings.calculateReward(depositAmount, minLock);
+    assertEq(reward1, reward60Days, "89 days gets same reward as 60 days (UNFAIR!)");
+    assertTrue(reward3 > reward1, "90 days should get more than 89 days");
+}
+```
+
+#### Mitigation
+Implement a continuous reward calculation that proportionally rewards users based on the exact time locked:
+```solidity
+if (_timeElapsed > MIN_LOCK_PERIOD) {
+    uint256 extraTime = _timeElapsed - MIN_LOCK_PERIOD;
+    uint256 bonusReward = (_amount * BONUS_REWARD_RATE * extraTime) / (BONUS_PERIOD * BASIS_POINTS);
+    reward += bonusReward;
+}
+```
+
+---
+
+### **Finding 4: Event Parameter Order Mismatch**
 **Severity: LOW**
 
 #### Description
@@ -211,7 +281,7 @@ emit Deposited(msg.sender, _amount, userDeposits[msg.sender].length - 1);
 
 ---
 
-### **Finding 4: Incomplete State Cleanup After Withdrawal**
+### **Finding 5: Incomplete State Cleanup After Withdrawal**
 **Severity: LOW**
 
 #### Description
@@ -267,7 +337,7 @@ userDeposit.amount = 0; // Add this line
 
 ---
 
-### **Finding 5: Precision Loss in Reward Calculations**
+### **Finding 6: Precision Loss in Reward Calculations**
 **Severity: LOW**
 
 #### Description
@@ -335,7 +405,7 @@ require(_amount >= BASIS_POINTS / BASE_REWARD_RATE, "Amount too small for reward
 
 ---
 
-### **Finding 6: Missing Constructor Input Validation**
+### **Finding 7: Missing Constructor Input Validation**
 **Severity: LOW**
 
 #### Description
@@ -385,6 +455,7 @@ constructor(address _token) {
 |---------|----------|--------|
 | Incorrect Parameter Order in Reward Calculation | MEDIUM | Needs Fix |
 | ERC20 Token Compatibility Issue | MEDIUM | Needs Fix |
+| Unfair Reward Distribution Due to Time-Based "Cliffs" | MEDIUM |Needs Fix |
 | Event Parameter Order Mismatch | LOW | Recommended Fix |
 | Incomplete State Cleanup After Withdrawal | LOW | Recommended Fix |
 | Precision Loss in Reward Calculations | LOW | Consider Fix |
@@ -394,7 +465,8 @@ constructor(address _token) {
 
 1. **Immediate Action Required**: Fix the parameter order bug in reward calculation as this has severe economic impact
 2. **High Priority**: Implement SafeERC20 to ensure compatibility with all ERC20 tokens
-3. **Code Quality**: Address the event parameter order and state cleanup issues
-4. **Consider**: Implement minimum deposit amounts and constructor validation
+3. **Address reward fairness**: Implement continuous reward calculation to eliminate time-based cliffs
+4. **Code Quality**: Fix event parameter order and state cleanup issues
+5. **Consider**: Implement minimum deposit amounts and constructor validation
 
 The contract shows good overall structure and logic, but these issues should be addressed before production deployment to ensure security, compatibility, and correct functionality.
