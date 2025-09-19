@@ -55,6 +55,7 @@ contract TimeLockSavingsPoc is Test {
     address public owner;
     address public user1;
     address public user2;
+    address public user3;
     
     uint256 constant DEPOSIT_AMOUNT = 1000 * 10**18;
     uint256 constant MIN_LOCK_PERIOD = 60 days;
@@ -72,6 +73,7 @@ contract TimeLockSavingsPoc is Test {
         owner = address(this);
         user1 = makeAddr("user1");
         user2 = makeAddr("user2");
+        user3 = makeAddr("user3");
         
         // Deploy mock token and savings contract
         token = new MockERC20();
@@ -80,9 +82,8 @@ contract TimeLockSavingsPoc is Test {
         // Fund users with tokens
         token.mint(user1, type(uint128).max);
         token.mint(user2, type(uint128).max);
+        token.mint(user3, type(uint128).max);
         
-        // Fund contract with tokens for rewards
-        token.mint(address(savings), type(uint128).max);
     }
 
     // ==================================================
@@ -91,6 +92,8 @@ contract TimeLockSavingsPoc is Test {
     
     /// @dev Test that demonstrates the wrong parameter order bug in withdraw()
     function test_bug1_WrongParameterOrder_BasicCase() public {
+        // Fund contract with tokens for rewards
+        token.mint(address(savings), type(uint128).max);
         uint256 depositAmount = 1000 * 10**18;
         
         vm.startPrank(user1);
@@ -152,6 +155,8 @@ contract TimeLockSavingsPoc is Test {
     
     /// @dev Test that shows deposit amount isn't reset after withdrawal
     function test_bug3_DepositStateAfterWithdrawal() public {
+        // Fund contract with tokens for rewards
+        token.mint(address(savings), type(uint128).max);
         uint256 depositAmount = 1000 * 10**18;
         
         vm.startPrank(user1);
@@ -274,7 +279,114 @@ contract TimeLockSavingsPoc is Test {
         assertEq(reward1, reward60Days, "89 days gets same reward as 60 days (UNFAIR!)");
         assertTrue(reward3 > reward1, "90 days should get more than 89 days");
     }
-
+    function test_Critical_UnsustainableRewardModel() public {
+        console2.log("=== UNSUSTAINABLE REWARD MODEL ===");
+        
+        // Simulate multiple users depositing and withdrawing
+        address[] memory users = new address[](3);
+        users[0] = user1;
+        users[1] = user2; 
+        users[2] = user3;
+        
+        uint256 depositAmount = 1000 * 10**18;
+        uint256 contractInitialBalance = token.balanceOf(address(savings));
+        
+        console2.log("Initial contract balance:", contractInitialBalance / 10**18, "tokens");
+        
+        // User 1 deposits and waits 90 days
+        vm.startPrank(user1);
+        token.approve(address(savings), depositAmount);
+        savings.deposit(depositAmount);
+        vm.stopPrank();
+        // User 2 deposits and waits 90 days
+        vm.startPrank(user2);
+        token.approve(address(savings), depositAmount);
+        savings.deposit(depositAmount);
+        vm.stopPrank();
+        // User 3 deposits and waits 90 days
+        vm.startPrank(user3);
+        token.approve(address(savings), depositAmount);
+        savings.deposit(depositAmount);
+        vm.stopPrank();
+        vm.warp(block.timestamp + 90 days);
+        
+        // User 1 withdraws with rewards
+        vm.prank(user1);
+        savings.withdraw(0);
+        
+        uint256 user1Received = token.balanceOf(user1) - (type(uint128).max - depositAmount);
+        uint256 contractBalanceAfterUser1 = token.balanceOf(address(savings));
+        
+        console2.log("User 1 received:", user1Received / 10**18, "tokens");
+        console2.log("Contract balance after User 1:", contractBalanceAfterUser1 / 10**18, "tokens");
+        // User 2 withdraws with rewards
+        vm.prank(user2);
+        savings.withdraw(0);
+        uint256 user2Received = token.balanceOf(user2) - (type(uint128).max - depositAmount);
+        uint256 contractBalanceAfterUser2 = token.balanceOf(address(savings));
+        
+        console2.log("User 2 received:", user2Received / 10**18, "tokens");
+        console2.log("Contract balance after User 2:", contractBalanceAfterUser2 / 10**18, "tokens");
+        
+        
+        // Contract may not have enough tokens to pay back even the principal
+        uint256 contractBalance = token.balanceOf(address(savings));
+        if (contractBalance < depositAmount) {
+            console2.log("CONTRACT INSOLVENT: Cannot even return principal to User 2");
+            // This will revert due to insufficient balance
+            vm.expectRevert("Insufficient balance");
+            vm.prank(user3);
+            savings.withdraw(0);
+        }
+        
+    }
+    function test_bug9_UnclaimablePenaltyFees() public {
+        console2.log("=== UNCLAIMED PENALTY FEES PROBLEM ===");
+        
+        uint256 depositAmount = 1000 * 10**18; // 1000 tokens
+        uint256 expectedPenalty = (depositAmount * EARLY_PENALTY_RATE) / BASIS_POINTS; // 100 tokens
+        
+        // User deposits
+        vm.startPrank(user1);
+        token.approve(address(savings), depositAmount);
+        savings.deposit(depositAmount);
+        
+        uint256 contractBalanceBefore = token.balanceOf(address(savings));
+        console2.log("Contract balance before early withdrawal:", contractBalanceBefore / 10**18, "tokens");
+        
+        // User withdraws early (within 60 days)
+        vm.warp(block.timestamp + 30 days); // Only 30 days passed
+        
+        uint256 userBalanceBefore = token.balanceOf(user1);
+        savings.withdraw(0);
+        uint256 userBalanceAfter = token.balanceOf(user1);
+        
+        uint256 userReceived = userBalanceAfter - userBalanceBefore;
+        uint256 contractBalanceAfter = token.balanceOf(address(savings));
+        
+        console2.log("User received:", userReceived / 10**18, "tokens");
+        console2.log("Expected penalty:", expectedPenalty / 10**18, "tokens");
+        console2.log("Contract balance after:", contractBalanceAfter / 10**18, "tokens");
+        
+        // Verify penalty was collected but not distributed
+        uint256 actualPenalty = contractBalanceAfter;
+        assertEq(actualPenalty, expectedPenalty, "Penalty should remain in contract");
+        assertEq(userReceived, depositAmount - expectedPenalty, "User should receive amount minus penalty");
+        
+        vm.stopPrank();
+        
+        // Demonstrate no way to claim penalty
+        console2.log("\n=== TRYING TO CLAIM PENALTIES ===");
+        
+        // Owner tries emergencyWithdraw (this would take penalty fees too)
+        uint256 ownerBalanceBefore = token.balanceOf(owner);
+        vm.prank(owner);
+        savings.emergencyWithdraw(); // This is the only way, but it's an emergency function
+        uint256 ownerBalanceAfter = token.balanceOf(owner);
+        
+        console2.log("Owner received via emergency:", (ownerBalanceAfter - ownerBalanceBefore) / 10**18, "tokens");
+        console2.log("This includes penalty fees, but emergency withdraw is not intended for fee collection");
+    }
 }
 
 // Mock USDT-like token that doesn't return boolean
